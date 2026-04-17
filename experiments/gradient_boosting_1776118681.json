@@ -1,0 +1,25 @@
+{
+  "run_id": "gradient_boosting_1776118681",
+  "model_name": "gradient_boosting",
+  "data_hash": "0c4301b7",
+  "params": {
+    "smote": true
+  },
+  "metrics": {
+    "roc_auc": 0.6831,
+    "f1_score": 0.0336,
+    "precision": 0.307,
+    "recall": 0.0178,
+    "confusion_matrix": [
+      [
+        22324,
+        79
+      ],
+      [
+        1934,
+        35
+      ]
+    ]
+  },
+  "timestamp": "2026-04-14 03uman:48:01"
+}
