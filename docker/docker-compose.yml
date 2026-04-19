@@ -1,44 +1,40 @@
 version: "3.9"
 
 services:
-  # ─── ML API (Production) ──────────────────────────────────────────────────
+  # ─── ML API (Production) ─────────────────────────────
   ml-api:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: loan-default-api:latest
+    container_name: ml-api
     ports:
       - "8000:8000"
     environment:
-      - API_KEY=${API_KEY:-dev-secret}
-      - MODEL_PATH=/app/models/model.pkl
-    volumes:
-      - ../models:/app/models:ro    # read-only model mount
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  # ─── ML API (Canary — 10% traffic via nginx) ──────────────────────────────
-  ml-api-canary:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-    image: loan-default-api:canary
-    ports:
-      - "8001:8000"
-    environment:
-      - API_KEY=${API_KEY:-dev-secret}
-      - MODEL_PATH=/app/models/model_canary.pkl
+      API_KEY: ${API_KEY:-dev-secret}
+      MODEL_PATH: /app/models/model.pkl
     volumes:
       - ../models:/app/models:ro
     restart: unless-stopped
 
-  # ─── NGINX Load Balancer (90% stable / 10% canary) ────────────────────────
+  # ─── ML API (Canary) ────────────────────────────────
+  ml-api-canary:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: ml-api-canary
+    ports:
+      - "8001:8000"
+    environment:
+      API_KEY: ${API_KEY:-dev-secret}
+      MODEL_PATH: /app/models/model_canary.pkl
+    volumes:
+      - ../models:/app/models:ro
+    restart: unless-stopped
+
+  # ─── NGINX (Traffic Split) ──────────────────────────
   nginx:
     image: nginx:alpine
+    container_name: nginx
     ports:
       - "80:80"
     volumes:
@@ -46,36 +42,4 @@ services:
     depends_on:
       - ml-api
       - ml-api-canary
-
-  # ─── Monitoring (Prometheus + Grafana) ────────────────────────────────────
-  prometheus:
-    image: prom/prometheus:latest
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-
-  grafana:
-    image: grafana/grafana:latest
-    ports:
-      - "3000:3000"
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
-    depends_on:
-      - prometheus
-
-  # ─── MLflow Experiment Tracking ───────────────────────────────────────────
-  mlflow:
-    image: ghcr.io/mlflow/mlflow:latest
-    ports:
-      - "5000:5000"
-    command: >
-      mlflow server
-      --backend-store-uri sqlite:///mlflow.db
-      --default-artifact-root /mlflow/artifacts
-      --host 0.0.0.0
-    volumes:
-      - mlflow-data:/mlflow
-
-volumes:
-  mlflow-data:
+    restart: unless-stopped
