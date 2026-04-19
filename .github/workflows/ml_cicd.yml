@@ -1,7 +1,17 @@
 # .github/workflows/ml_cicd.yml
 # ──────────────────────────────────────────────────────────────────────────────
-# ML CI/CD Pipeline
-# Triggers: push to main, PR to main, scheduled weekly retraining
+# ML CI/CD Pipeline — structure matched to actual repo:
+#
+#   src/api/serve.py
+#   src/data/ingest.py
+#   src/features/feature_eng.py
+#   src/models/train.py
+#   src/monitoring/drift.py
+#   src/tests/test_pipeline.py
+#   scripts/train_pipeline.py
+#   docker/Dockerfile
+#
+# Triggers: push to main, PR to main, scheduled weekly retraining, manual
 # ──────────────────────────────────────────────────────────────────────────────
 
 name: ML Pipeline CI/CD
@@ -14,9 +24,39 @@ on:
   schedule:
     - cron: "0 2 * * 1"    # Weekly retraining: every Monday 2 AM UTC
 
+  # ── MANUAL TRIGGER ──────────────────────────────────────────────────────────
+  # Go to GitHub → Actions tab → "ML Pipeline CI/CD" → "Run workflow" button
+  workflow_dispatch:
+    inputs:
+      run_training:
+        description: "Run model retraining? (yes = full pipeline, no = lint + build only)"
+        required: true
+        default: "yes"
+        type: choice
+        options:
+          - "yes"
+          - "no"
+      min_auc:
+        description: "Minimum AUC threshold for quality gate"
+        required: false
+        default: "0.70"
+        type: string
+      min_f1:
+        description: "Minimum F1 threshold for quality gate"
+        required: false
+        default: "0.60"
+        type: string
+      skip_canary:
+        description: "Skip canary wait (set true for demo/interview speed)"
+        required: false
+        default: "false"
+        type: boolean
+
 env:
   IMAGE_NAME: loan-default-api
   REGISTRY: ghcr.io/${{ github.repository_owner }}
+  # PYTHONPATH set globally so all jobs resolve src/data/, src/features/ etc.
+  PYTHONPATH: src
 
 jobs:
   # ─── PHASE 1: CODE QUALITY ─────────────────────────────────────────────────
@@ -33,12 +73,14 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt pytest flake8
+        run: pip install -r requirements.txt pytest flake8 imbalanced-learn
 
       - name: Lint with flake8
+        # lints src/api/, src/data/, src/features/, src/models/, src/monitoring/, src/tests/
         run: flake8 src/ --max-line-length=100 --exclude=__pycache__
 
       - name: Run unit tests
+        # tests live at src/tests/test_pipeline.py
         run: pytest src/tests/ -v --tb=short
 
   # ─── PHASE 2: MODEL TRAINING ───────────────────────────────────────────────
@@ -46,7 +88,10 @@ jobs:
     name: Train & Evaluate Model
     runs-on: ubuntu-latest
     needs: lint-and-test
-    if: github.event_name == 'schedule' || contains(github.event.head_commit.message, '[retrain]')
+    if: |
+      github.event_name == 'schedule' ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[retrain]')) ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.run_training == 'yes')
     steps:
       - uses: actions/checkout@v4
 
@@ -54,22 +99,29 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
 
       - name: Install ML dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.txt imbalanced-learn
 
       - name: Download data
         run: |
-          # In production: pull from S3 / GCS / Azure Blob
           echo "Downloading training data..."
-          # aws s3 cp s3://your-bucket/data/train.csv data/processed/train.csv
+          # aws s3 cp s3://your-bucket/data/raw/Dataset.csv data/raw/Dataset.csv
+
+      - name: Run data ingestion
+        # src/data/ingest.py → creates data/processed/train.csv + test.csv
+        run: python -c "from data.ingest import run_ingestion; run_ingestion('data/raw/Dataset.csv')"
 
       - name: Train model
+        # scripts/train_pipeline.py pulls from src/data, src/features, src/models
         run: python scripts/train_pipeline.py
 
-      - name: Evaluate model (gate)
+      - name: Evaluate model (quality gate)
         run: |
-          python scripts/evaluate.py --min-auc 0.70 --min-f1 0.60
+          MIN_AUC=${{ github.event.inputs.min_auc || '0.70' }}
+          MIN_F1=${{ github.event.inputs.min_f1 || '0.60' }}
+          python scripts/evaluate.py --min-auc $MIN_AUC --min-f1 $MIN_F1
           echo "Model passed quality gate ✓"
 
       - name: Upload model artifact
@@ -77,13 +129,16 @@ jobs:
         with:
           name: trained-model
           path: models/
+          retention-days: 7
 
   # ─── PHASE 3: BUILD DOCKER IMAGE ───────────────────────────────────────────
   build-image:
     name: Build & Push Docker Image
     runs-on: ubuntu-latest
     needs: lint-and-test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
 
@@ -92,7 +147,7 @@ jobs:
         with:
           name: trained-model
           path: models/
-        continue-on-error: true    # Skip if no new model (code-only push)
+        continue-on-error: true    # fine — code-only pushes won't have a new model
 
       - name: Log in to Container Registry
         uses: docker/login-action@v3
@@ -105,7 +160,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: docker/Dockerfile
+          file: docker/Dockerfile    # matches your docker/ folder in the repo
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
@@ -118,15 +173,30 @@ jobs:
     needs: build-image
     environment: production
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt imbalanced-learn
+
       - name: Deploy canary
         run: |
           echo "Deploying canary with 10% traffic split..."
           # kubectl set image deployment/ml-api-canary api=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-          # OR docker stack deploy with updated docker-compose
 
-      - name: Wait and validate canary (15 min)
+      - name: Wait and validate canary
         run: |
-          sleep 900    # 15 minutes observation window
+          if [ "${{ github.event.inputs.skip_canary }}" != "true" ]; then
+            echo "Waiting 15 minutes for canary observation..."
+            sleep 900
+          else
+            echo "⚡ Canary wait skipped (demo mode)"
+          fi
           python scripts/validate_canary.py --error-rate-threshold 0.05
 
   # ─── PHASE 5: FULL ROLLOUT ─────────────────────────────────────────────────
@@ -136,6 +206,8 @@ jobs:
     needs: deploy-canary
     environment: production
     steps:
+      - uses: actions/checkout@v4
+
       - name: Promote canary to stable
         run: |
           echo "Promoting canary → stable (100% traffic)..."
