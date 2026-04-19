@@ -3,15 +3,16 @@ UNIT TESTS
 Run with: pytest src/tests/ -v
 """
 
-import pytest
-import pandas as pd
-import numpy as np
 import sys
 import os
 
-# Fix path
+# Fix path FIRST (before imports)
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, ROOT_DIR)
+
+import pytest
+import pandas as pd
+import numpy as np
 
 from data.ingest import clean_and_cast, validate_data
 from features.feature_eng import engineer_features
