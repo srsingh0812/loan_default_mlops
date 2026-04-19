@@ -127,8 +127,7 @@ class ModelMonitor:
                     feature="PERFORMANCE",
                     psi_score=0.0,
                     severity="CRITICAL",
-                    message=f"F1 degraded: {
-                        current_f1:.3f} (baseline={baseline_f1})"))
+                    message=f"F1 degraded: {current_f1:.3f} (baseline={baseline_f1})"))
             logger.critical(
                 f"Model performance degradation! F1={
                     current_f1:.3f}")
