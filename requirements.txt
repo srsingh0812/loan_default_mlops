@@ -22,3 +22,7 @@ pytest-cov>=4.0
 
 # Code quality
 flake8>=7.0
+
+# Visualization (ADD THIS)
+matplotlib>=3.8
+seaborn>=0.13
