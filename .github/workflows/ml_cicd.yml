@@ -55,7 +55,7 @@ jobs:
 
       - name: Build Docker image
         run: |
-          docker build -t loan-default-ml .
+          docker build -t loan-default-ml -f docker/Dockerfile .
 
       # (Optional) push to DockerHub if needed
       # - name: Login to DockerHub
