@@ -1,65 +1,54 @@
-name: ML CI/CD Pipeline
+"""
+UNIT TESTS
+Run with: pytest src/tests/ -v
+"""
 
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+import sys
+import os
 
-jobs:
-  lint_and_test:
-    runs-on: ubuntu-latest
+# Fix path FIRST
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, ROOT_DIR)
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+import pytest
+import pandas as pd
+import numpy as np
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
+from data.ingest import clean_and_cast, validate_data
+from features.feature_eng import engineer_features
+from monitoring.drift import calculate_psi
 
-      - name: Cache dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+@pytest.fixture
+def sample_df():
+    return pd.DataFrame({
+        "ID": [1, 2, 3, 4, 5],
+        "Client_Income": ["100000", "200000", None, "150000", "80000"],
+        "Credit_Amount": ["500000", "800000", "300000", None, "200000"],
+        "Loan_Annuity": ["25000", "40000", "15000", "20000", "10000"],
+        "Age_Days": ["14600", "18000", "12000", "20000", "16000"],
+        "Employed_Days": ["-1000", "-500", "365243", "-800", None],
+        "Default": [0, 1, 0, 1, 0],
+    })
 
-      # ✅ ROBUST LINT (won’t fail for trivial issues)
-      - name: Lint (non-blocking formatting checks)
-        run: |
-          flake8 src/ \
-            --max-line-length=100 \
-            --ignore=W292,E402,E221,F401 \
-            || true
 
-      # ✅ TESTS are the real gate
-      - name: Run unit tests
-        run: |
-          pytest src/tests/ -v
+def test_validate_data_passes(sample_df):
+    assert validate_data(sample_df) is True
 
-  build_and_deploy:
-    needs: lint_and_test
-    runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+def test_clean_and_cast(sample_df):
+    df = clean_and_cast(sample_df)
+    assert "Client_Income" in df.columns
 
-      - name: Build Docker image
-        run: |
-          docker build -t loan-default-ml .
 
-      # (Optional) push to DockerHub if needed
-      # - name: Login to DockerHub
-      #   run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+def test_feature_engineering(sample_df):
+    df = clean_and_cast(sample_df)
+    df = engineer_features(df)
+    assert "income_annuity_ratio" in df.columns
 
-      # - name: Push image
-      #   run: docker push loan-default-ml
+
+def test_psi():
+    a = np.random.normal(0, 1, 1000)
+    b = np.random.normal(1, 1, 1000)
+    psi = calculate_psi(a, b)
+    assert isinstance(psi, float)
