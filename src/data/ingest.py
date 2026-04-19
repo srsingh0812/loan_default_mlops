@@ -63,7 +63,8 @@ def validate_data(df: pd.DataFrame) -> bool:
     missing_pct = df.isnull().mean()
     high_missing = missing_pct[missing_pct > 0.9].index.tolist()
 
-    assert len(high_missing) == 0, f"Columns with >90% missing values: {high_missing}"
+    assert len(
+        high_missing) == 0, f"Columns with >90% missing values: {high_missing}"
 
     logger.info("Data validation passed ✓")
 

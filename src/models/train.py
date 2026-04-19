@@ -2,6 +2,9 @@
 Train and evaluate loan default model.
 """
 
+from src.features.feature_eng import (
+    engineer_features, prepare_xy, load_preprocessor
+)
 import sys
 import os
 import time
@@ -26,10 +29,6 @@ from imblearn.over_sampling import SMOTE
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 if ROOT_DIR not in sys.path:
     sys.path.append(ROOT_DIR)
-
-from src.features.feature_eng import (
-    engineer_features, prepare_xy, load_preprocessor
-)
 
 
 # --- logging ---

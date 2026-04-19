@@ -34,7 +34,7 @@ def calculate_psi(expected: np.ndarray, actual: np.ndarray,
     bins[0], bins[-1] = -np.inf, np.inf             # open edges
 
     p_expected = _bucketize(expected, bins)
-    p_actual   = _bucketize(actual,   bins)
+    p_actual = _bucketize(actual, bins)
 
     psi = np.sum((p_actual - p_expected) * np.log(p_actual / p_expected))
     return round(float(psi), 4)
@@ -50,12 +50,13 @@ class DriftAlert:
     message: str
 
 
-# ─── Monitor Class ────────────────────────────────────────────────────────────
+# ─── Monitor Class ──────────────────────────────────────────────────────
 class ModelMonitor:
 
     PSI_THRESHOLDS = {"INFO": 0.0, "WARNING": 0.10, "CRITICAL": 0.25}
 
-    def __init__(self, reference_df: pd.DataFrame, output_dir: str = "monitoring"):
+    def __init__(self, reference_df: pd.DataFrame,
+                 output_dir: str = "monitoring"):
         self.reference_df = reference_df
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -120,24 +121,31 @@ class ModelMonitor:
         current_f1 = f1_score(y_true, y_pred)
         degraded = current_f1 < (baseline_f1 - threshold)
         if degraded:
-            self.alerts.append(DriftAlert(
-                timestamp=time.strftime("%Y-%m-%dT%H:%M:%S"),
-                feature="PERFORMANCE",
-                psi_score=0.0,
-                severity="CRITICAL",
-                message=f"F1 degraded: {current_f1:.3f} (baseline={baseline_f1})"
-            ))
-            logger.critical(f"Model performance degradation! F1={current_f1:.3f}")
+            self.alerts.append(
+                DriftAlert(
+                    timestamp=time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    feature="PERFORMANCE",
+                    psi_score=0.0,
+                    severity="CRITICAL",
+                    message=f"F1 degraded: {
+                        current_f1:.3f} (baseline={baseline_f1})"))
+            logger.critical(
+                f"Model performance degradation! F1={
+                    current_f1:.3f}")
         return degraded
 
     def save_report(self) -> str:
         """Persist drift report to disk."""
         report = {
             "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-            "total_alerts": len(self.alerts),
-            "critical": sum(1 for a in self.alerts if a.severity == "CRITICAL"),
-            "warnings": sum(1 for a in self.alerts if a.severity == "WARNING"),
-            "alerts": [asdict(a) for a in self.alerts],
+            "total_alerts": len(
+                self.alerts),
+            "critical": sum(
+                1 for a in self.alerts if a.severity == "CRITICAL"),
+            "warnings": sum(
+                1 for a in self.alerts if a.severity == "WARNING"),
+            "alerts": [
+                asdict(a) for a in self.alerts],
         }
         path = self.output_dir / f"report_{int(time.time())}.json"
         with open(path, "w") as f:
